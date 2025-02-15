@@ -6,152 +6,127 @@ use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\Session\SessionInterface;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Symfony\Component\HttpKernel\Exception\UnprocessableEntityHttpException;
-use Symfony\Component\Routing\Attribute\Route;
+use Symfony\Component\Routing\Annotation\Route;
 use Symfony\Component\Security\Http\Attribute\IsGranted;
 
 #[Route('/api/v1')]
 class TestController extends AbstractController
 {
-
-    public const USERS_DATA = [
-        [
-            'id'    => '1',
-            'email' => 'test1@gmail.com',
-            'name'  => 'John1'
-        ],
-        [
-            'id'    => '2',
-            'email' => 'test2@gmail.com',
-            'name'  => 'John2'
-        ],
-        [
-            'id'    => '3',
-            'email' => 'test3@gmail.com',
-            'name'  => 'John3'
-        ],
-        [
-            'id'    => '4',
-            'email' => 'test4@gmail.com',
-            'name'  => 'John4'
-        ],
-        [
-            'id'    => '5',
-            'email' => 'test5@gmail.com',
-            'name'  => 'John5'
-        ],
-        [
-            'id'    => '6',
-            'email' => 'test6@gmail.com',
-            'name'  => 'John6'
-        ],
-        [
-            'id'    => '7',
-            'email' => 'test7@gmail.com',
-            'name'  => 'John7'
-        ],
-    ];
+    private function initializeUsers(SessionInterface $session): void
+    {
+        if (!$session->has('users')) {
+            $session->set('users', [
+                ['id' => '1', 'email' => 'ipz231_pyed@student.ztu.edu.ua', 'name' => 'Yehor1'],
+                ['id' => '2', 'email' => 'ipz231_pyed@student.ztu.edu.ua', 'name' => 'Yehor2'],
+                ['id' => '3', 'email' => 'ipz231_pyed@student.ztu.edu.ua', 'name' => 'Yehor3'],
+                ['id' => '4', 'email' => 'ipz231_pyed@student.ztu.edu.ua', 'name' => 'Yehor4'],
+                ['id' => '5', 'email' => 'ipz231_pyed@student.ztu.edu.ua', 'name' => 'Yehor5'],
+                ['id' => '6', 'email' => 'ipz231_pyed@student.ztu.edu.ua', 'name' => 'Yehor6'],
+                ['id' => '7', 'email' => 'ipz231_pyed@student.ztu.edu.ua', 'name' => 'Yehor7'],
+            ]);
+        }
+    }
 
     #[Route('/users', name: 'app_collection_users', methods: ['GET'])]
-    #[IsGranted("ROLE_ADMIN")]
-    public function getCollection(): JsonResponse
+    #[IsGranted("PUBLIC_ACCESS")]
+    public function getCollection(SessionInterface $session): JsonResponse
     {
-        return new JsonResponse([
-            'data' => self::USERS_DATA
-        ], Response::HTTP_OK);
+        $this->initializeUsers($session);
+        return new JsonResponse(['data' => $session->get('users')], Response::HTTP_OK);
     }
 
     #[Route('/users/{id}', name: 'app_item_users', methods: ['GET'])]
-    public function getItem(string $id): JsonResponse
+    #[IsGranted("ROLE_USER")]
+    public function getItem(string $id, SessionInterface $session): JsonResponse
     {
-        $userData = $this->findUserById($id);
-
-        return new JsonResponse([
-            'data' => $userData
-        ], Response::HTTP_OK);
+        $this->initializeUsers($session);
+        $userData = $this->findUserById($id, $session);
+        return new JsonResponse(['data' => $userData], Response::HTTP_OK);
     }
 
     #[Route('/users', name: 'app_create_users', methods: ['POST'])]
-    public function createItem(Request $request): JsonResponse
+    #[IsGranted("ROLE_ADMIN")]
+    public function createItem(Request $request, SessionInterface $session): JsonResponse
     {
+        $this->initializeUsers($session);
         $requestData = json_decode($request->getContent(), true);
 
         if (!isset($requestData['email'], $requestData['name'])) {
             throw new UnprocessableEntityHttpException("name and email are required");
         }
 
-        // TODO check by regex
-
-        $countOfUsers = count(self::USERS_DATA);
-
+        $users = $session->get('users');
+        $newId = count($users) + 1;
         $newUser = [
-            'id'    => $countOfUsers + 1,
+            'id'    => (string) $newId,
             'name'  => $requestData['name'],
             'email' => $requestData['email']
         ];
 
-        // TODO add new user to collection
+        $users[] = $newUser;
+        $session->set('users', $users);
 
-        return new JsonResponse([
-            'data' => $newUser
-        ], Response::HTTP_CREATED);
+        return new JsonResponse(['data' => $newUser], Response::HTTP_CREATED);
     }
 
     #[Route('/users/{id}', name: 'app_delete_users', methods: ['DELETE'])]
-    public function deleteItem(string $id): JsonResponse
+    #[IsGranted("ROLE_ADMIN")]
+    public function deleteItem(string $id, SessionInterface $session): JsonResponse
     {
-        $this->findUserById($id);
+        $this->initializeUsers($session);
+        $users = $session->get('users');
 
-        // TODO remove user from collection
+        foreach ($users as $index => $user) {
+            if ($user['id'] === $id) {
+                array_splice($users, $index, 1);
+                $session->set('users', $users);
+                return new JsonResponse([], Response::HTTP_NO_CONTENT);
+            }
+        }
 
-        return new JsonResponse([], Response::HTTP_NO_CONTENT);
+        throw new NotFoundHttpException("User with id $id not found");
     }
 
     #[Route('/users/{id}', name: 'app_update_users', methods: ['PATCH'])]
-    public function updateItem(string $id, Request $request): JsonResponse
+    #[IsGranted("ROLE_ADMIN")]
+    public function updateItem(string $id, Request $request, SessionInterface $session): JsonResponse
     {
+        $this->initializeUsers($session);
         $requestData = json_decode($request->getContent(), true);
 
         if (!isset($requestData['name'])) {
             throw new UnprocessableEntityHttpException("name is required");
         }
+        if (!isset($requestData['email'])) {
+            throw new UnprocessableEntityHttpException("email is required");
+        }
 
-        $userData = $this->findUserById($id);
+        $users = $session->get('users');
+        foreach ($users as &$user) {
+            if ($user['id'] === $id) {
+                $user['name'] = $requestData['name'];
+                $user['email'] = $requestData['email'];
+                $session->set('users', $users);
+                return new JsonResponse(['data' => $user], Response::HTTP_OK);
+            }
+        }
 
-        // TODO update user name
-
-        $userData['name'] = $requestData['name'];
-
-        return new JsonResponse(['data' => $userData], Response::HTTP_OK);
+        throw new NotFoundHttpException("User with id $id not found");
     }
 
-    /**
-     * @param string $id
-     * @return string[]
-     */
-    public function findUserById(string $id): array
+    private function findUserById(string $id, SessionInterface $session): array
     {
-        $userData = null;
+        $this->initializeUsers($session);
+        $users = $session->get('users');
 
-        foreach (self::USERS_DATA as $user) {
-            if (!isset($user['id'])) {
-                continue;
+        foreach ($users as $user) {
+            if ($user['id'] === $id) {
+                return $user;
             }
-
-            if ($user['id'] == $id) {
-                $userData = $user;
-
-                break;
-            }
-
         }
-
-        if (!$userData) {
-            throw new NotFoundHttpException("User with id " . $id . " not found");
-        }
-
-        return $userData;
+        throw new NotFoundHttpException("User with id $id not found");
     }
-
 }
